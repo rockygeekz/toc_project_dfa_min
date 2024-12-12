@@ -1,86 +1,150 @@
-// Function to tokenize the input code
-const tokenize = (input) => {
-    // Define keywords as a set to easily check against
-    const keywords = new Set(["int", "if", "else", "while", "return"]);
+// Optimized DFA Minimization and Lexical Analysis
 
-    // Token patterns with regex
+// Tokenization Function
+const tokenize = (input) => {
+    const keywords = new Set(["int", "if", "else", "while", "return"]);
     const tokenPatterns = [
-        { type: "keyword", regex: /\b(int|if|else|while|return)\b/g },  // Match keywords first
-        { type: "identifier", regex: /\b[a-zA-Z_]\w*\b/g },             // Match identifiers
-        { type: "operator", regex: /[=+\-*/<>!]/g },                     // Match operators
-        { type: "number", regex: /\b\d+\b/g },                           // Match numbers
-        { type: "brackets", regex: /[\(\)\{\}\[\]]/g },                  // Match brackets
-        { type: "semicolon", regex: /;/g }                               // Match semicolons
+        { type: "keyword", regex: /\b(int|if|else|while|return)\b/ },
+        { type: "identifier", regex: /\b[a-zA-Z_]\w*\b/ },
+        { type: "operator", regex: /[=+\-*/<>!]/ },
+        { type: "number", regex: /\b\d+\b/ },
+        { type: "brackets", regex: /[\(\)\{\}\[\]]/ },
+        { type: "semicolon", regex: /;/ },
+        { type: "comment", regex: /\/\/[^\n]*|\/\*[\s\S]*?\*\// },
+        { type: "whitespace", regex: /\s+/ },
     ];
-    
 
     let tokens = [];
-    let remainingInput = input;
+    let position = 0;
 
-    // First, tokenize the keywords specifically, as they have precedence
-    let keywordMatches;
-    while ((keywordMatches = tokenPatterns[0].regex.exec(remainingInput)) !== null) {
-        tokens.push({ type: "keyword", value: keywordMatches[0] });
-        remainingInput = remainingInput.replace(keywordMatches[0], '');  // Remove matched keyword
-    }
+    while (position < input.length) {
+        let matchFound = false;
 
-    // Now tokenize the rest of the input for numbers, operators, brackets, etc.
-    tokenPatterns.slice(1).forEach(pattern => {
-        let match;
-        while ((match = pattern.regex.exec(remainingInput)) !== null) {
-            // If the token is not a keyword, it is an identifier
-            if (pattern.type === "identifier" && !keywords.has(match[0])) {
-                tokens.push({ type: "identifier", value: match[0] });
-            } else {
-                tokens.push({ type: pattern.type, value: match[0] });
+        for (const pattern of tokenPatterns) {
+            const regex = new RegExp(`^${pattern.regex.source}`);
+            const match = input.slice(position).match(regex);
+
+            if (match) {
+                const value = match[0];
+
+                if (pattern.type !== "whitespace" && pattern.type !== "comment") {
+                    if (pattern.type === "identifier" && keywords.has(value)) {
+                        tokens.push({ type: "keyword", value });
+                    } else {
+                        tokens.push({ type: pattern.type, value });
+                    }
+                }
+
+                position += value.length;
+                matchFound = true;
+                break;
             }
-            remainingInput = remainingInput.replace(match[0], '');  // Remove matched token
         }
-    });
+
+        if (!matchFound) {
+            throw new Error(`Unexpected token at position ${position}: ${input.slice(position, position + 10)}`);
+        }
+    }
 
     return tokens;
 };
 
-// Simulated DFA generation (can be expanded with more logic)
+// Generate DFA Function
 const generateDFA = (input) => {
-    return {
-        states: ["q0", "q1", "q2"],
-        transitions: {
-            q0: { "i": "q1", "n": "q2" },
-            q1: { "t": "q2" },
-            q2: { "=": "q3" }
-        },
-        startState: "q0",
-        finalStates: ["q2"]
-    };
+    const tokens = tokenize(input);
+    let states = ["q0"];
+    let transitions = {};
+    let finalStates = [];
+
+    let currentState = "q0";
+    let stateCounter = 1;
+    transitions[currentState] = {};
+
+    tokens.forEach((token, index) => {
+        const tokenType = token.type;
+
+        if (!transitions[currentState][tokenType]) {
+            let newState = `q${stateCounter++}`;
+            transitions[currentState][tokenType] = newState;
+            states.push(newState);
+            transitions[newState] = {};
+        }
+
+        currentState = transitions[currentState][tokenType];
+
+        if (index === tokens.length - 1) {
+            finalStates.push(currentState);
+        }
+    });
+
+    return { states, transitions, startState: "q0", finalStates };
 };
 
-// Simulated DFA minimization (simplified)
+// Minimize DFA Function
 const minimizeDFA = (dfa) => {
+    const { states, transitions, startState, finalStates } = dfa;
+
+    let partition = [finalStates, states.filter(s => !finalStates.includes(s))];
+    let newPartition;
+
+    do {
+        newPartition = [];
+
+        partition.forEach(group => {
+            let groups = {};
+
+            group.forEach(state => {
+                let key = JSON.stringify(Object.keys(transitions[state] || {}).map(k => {
+                    let targetState = transitions[state][k];
+                    return partition.findIndex(g => g.includes(targetState));
+                }));
+
+                if (!groups[key]) groups[key] = [];
+                groups[key].push(state);
+            });
+
+            newPartition.push(...Object.values(groups));
+        });
+
+        partition = newPartition;
+    } while (partition.length !== newPartition.length);
+
+    let minimizedStates = partition.map((group, idx) => `q${idx}`);
+    let minimizedTransitions = {};
+    let minimizedFinalStates = [];
+
+    partition.forEach((group, idx) => {
+        const stateName = `q${idx}`;
+        minimizedTransitions[stateName] = {};
+
+        group.forEach(state => {
+            if (finalStates.includes(state)) {
+                minimizedFinalStates.push(stateName);
+            }
+
+            Object.keys(transitions[state] || {}).forEach(symbol => {
+                let targetState = transitions[state][symbol];
+                let targetGroup = partition.findIndex(g => g.includes(targetState));
+                minimizedTransitions[stateName][symbol] = `q${targetGroup}`;
+            });
+        });
+    });
+
     return {
-        states: ["q0", "q1"],
-        transitions: {
-            q0: { "i": "q1", "n": "q1" }
-        },
+        states: minimizedStates,
+        transitions: minimizedTransitions,
         startState: "q0",
-        finalStates: ["q1"]
+        finalStates: [...new Set(minimizedFinalStates)]
     };
 };
 
-// Controller to process the input
+// Process Input Function
 const processInput = (req, res) => {
     const { input } = req.body;
-
-    // Tokenize the input code
     const tokens = tokenize(input);
-
-    // Generate the original DFA
     const originalDFA = generateDFA(input);
-
-    // Minimize the DFA
     const minimizedDFA = minimizeDFA(originalDFA);
 
-    // Send the response back to frontend
     res.json({
         tokens,
         originalDFA,
@@ -88,4 +152,5 @@ const processInput = (req, res) => {
     });
 };
 
+// Export for Testing
 module.exports = { processInput };
