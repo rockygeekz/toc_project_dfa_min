@@ -12,6 +12,10 @@ app.use(bodyParser.json());
 
 // Routes
 app.use("/api/dfa", dfaRoutes);
+app.get("/ping",(req,res)=>{
+  console.log("Pong");
+  res.send("pong")
+})
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
